@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador de Ventana Deslizante — Selective Repeat</title>
+<style>
+  :root{
+    --fg:#111;
+    --muted:#666;
+    --line:#222;
+    --panel:#fafafa;
+    --amber:#e0a418;
+    --amber-bg:#fff6dc;
+    --red:#c62828;
+    --red-bg:#fdecea;
+    --green:#2f7d32;
+    --green-bg:#e9f5ea;
+    --blue:#1656a8;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:#fff;
+    color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45;
+  }
+  .mono{font-family:ui-monospace,Menlo,Consolas,"SFMono-Regular",monospace;}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 70px;}
+
+  header h1{font-size:1.55rem;margin:0 0 6px;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.01em;}
+  header p.sub{color:var(--muted);margin:0 0 24px;font-size:.95rem;max-width:640px;}
+
+  fieldset{border:1px solid var(--line);padding:16px 18px;margin:0 0 20px;}
+  legend{padding:0 6px;font-size:.75rem;color:var(--muted);}
+
+  .controls{display:flex;flex-wrap:wrap;gap:18px 30px;}
+  .control{display:flex;flex-direction:column;gap:6px;min-width:170px;flex:1 1 170px;}
+  .control label{font-size:.78rem;font-weight:600;display:flex;justify-content:space-between;gap:8px;}
+  .control label .val{font-weight:400;color:var(--muted);}
+  .control input[type=range]{width:100%;accent-color:#111;}
+  .control small{font-size:.7rem;color:var(--muted);}
+
+  .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;}
+  button{
+    font:inherit;font-size:.85rem;border:1px solid var(--fg);background:#111;color:#fff;
+    padding:9px 16px;cursor:pointer;border-radius:3px;
+  }
+  button.secondary{background:#fff;color:var(--fg);}
+  button:disabled{opacity:.35;cursor:not-allowed;}
+  #statusMsg{font-size:.82rem;color:var(--muted);margin-left:4px;}
+
+  .stage{border:1px solid var(--line);padding:22px 20px 18px;margin:20px 0;}
+  .nodes-row{display:flex;align-items:stretch;gap:16px;}
+  .node-box{
+    width:150px;flex:0 0 150px;border:2px solid var(--fg);padding:14px 10px;text-align:center;
+    display:flex;flex-direction:column;justify-content:center;gap:6px;
+    transition:background-color .25s ease, color .25s ease, box-shadow .25s ease;
+  }
+  .node-box h3{margin:0;font-size:.82rem;}
+  .node-box .sub{font-size:.7rem;opacity:.65;}
+  .node-box.active{background:#111;color:#fff;box-shadow:0 0 0 5px rgba(0,0,0,.10);}
+
+  .channel{flex:1;position:relative;display:flex;flex-direction:column;justify-content:center;gap:34px;padding:4px 8px 0;min-width:220px;}
+  .lane{position:relative;height:2px;background:repeating-linear-gradient(to right,#bbb 0 6px,transparent 6px 12px);}
+  .lane .lane-label{position:absolute;top:-19px;font-size:.68rem;color:var(--muted);white-space:nowrap;}
+  .lane.data .lane-label{left:0;}
+  .lane.ack .lane-label{right:0;}
+  .token{
+    position:absolute;top:50%;width:32px;height:32px;transform:translate(-50%,-50%);
+    border-radius:6px;display:flex;align-items:center;justify-content:center;
+    font-size:.65rem;font-weight:700;color:#fff;pointer-events:none;
+  }
+  .token-data{background:var(--blue);}
+  .token-ack{background:var(--green);}
+  .token.is-lost{background:var(--red)!important;opacity:0;transform:translate(-50%,-50%) scale(1.6);transition:opacity .32s ease,transform .32s ease;}
+  .token.is-arrived{opacity:0;transition:opacity .22s ease;}
+
+  .overview{margin:18px 0;}
+  .overview h4{margin:0 0 8px;font-size:.78rem;color:var(--muted);font-weight:600;}
+  .dots{display:flex;gap:4px;overflow-x:auto;padding:8px 6px;border:1px solid #ddd;}
+  .dot{width:11px;height:11px;flex:0 0 11px;border-radius:2px;background:#e2e2e2;}
+  .dot.d-acked{background:var(--green);}
+  .dot.d-lost{background:var(--red);}
+  .dot.d-wait{background:var(--amber);}
+
+  .stacks{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0;}
+  @media(max-width:720px){.stacks{grid-template-columns:1fr;}}
+  .stack-panel{border:1px solid var(--line);padding:14px;}
+  .stack-panel h4{margin:0 0 4px;font-size:.85rem;}
+  .stack-panel p.hint{margin:0 0 12px;font-size:.72rem;color:var(--muted);}
+  .slots{display:flex;gap:8px;flex-wrap:wrap;}
+  .slot{
+    width:68px;height:66px;border:2px solid #bbb;border-radius:4px;background:#f2f2f2;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+    font-size:.66rem;text-align:center;padding:2px;transition:background-color .2s,border-color .2s;
+  }
+  .slot .num{font-weight:700;font-size:.9rem;font-family:ui-monospace,Menlo,Consolas,monospace;}
+  .slot.empty{border-style:dashed;color:#c2c2c2;background:#fff;}
+  .slot.st-pending{background:#eee;border-color:#aaa;color:#555;}
+  .slot.st-sent,.slot.st-buffered{background:var(--amber-bg);border-color:var(--amber);color:#7a5400;}
+  .slot.st-lost{background:var(--red-bg);border-color:var(--red);color:#8f1d1d;}
+  .slot.st-acked{background:var(--green-bg);border-color:var(--green);color:#1c5e28;}
+
+  .stats{display:flex;gap:22px;flex-wrap:wrap;font-size:.78rem;color:#333;margin:4px 0 20px;}
+  .stats b{color:#111;}
+
+  .log{
+    border:1px solid var(--line);padding:12px 14px;height:180px;overflow-y:auto;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.74rem;line-height:1.55;background:var(--panel);
+  }
+  .log .line{white-space:pre-wrap;}
+  .log .line.info{color:#222;}
+  .log .line.success{color:var(--green);}
+  .log .line.error{color:var(--red);}
+  .log .line.warn{color:#8a5b00;}
+  .log .line.muted{color:#999;font-style:italic;}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.73rem;color:#333;margin:20px 0 4px;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .swatch{width:12px;height:12px;border-radius:3px;display:inline-block;border:1px solid #999;}
+  .sw-pending{background:#eee;}
+  .sw-sent{background:var(--amber-bg);border-color:var(--amber);}
+  .sw-lost{background:var(--red-bg);border-color:var(--red);}
+  .sw-acked{background:var(--green-bg);border-color:var(--green);}
+
+  details{margin-top:26px;border:1px solid #ddd;padding:12px 16px;font-size:.8rem;color:#333;}
+  details summary{cursor:pointer;font-weight:600;font-size:.82rem;}
+  details p{margin:10px 0 0;}
+  details ul{margin:8px 0 0;padding-left:18px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>Ventana Deslizante · Selective Repeat</h1>
+    <p class="sub">Simulación paso a paso de cómo el emisor y el receptor intercambian tramas y confirmaciones (ACK), qué pasa cuando algo se pierde en el canal, y cómo se reenvía solo lo necesario.</p>
+  </header>
+
+  <fieldset>
+    <legend>Parámetros de la simulación</legend>
+    <div class="controls">
+      <div class="control">
+        <label>Tamaño de ventana <span class="val" id="lblWindow">4 tramas</span></label>
+        <input type="range" id="ctlWindow" min="1" max="8" step="1" value="4">
+        <small>Misma ventana para emisor y receptor (requisito de Selective Repeat).</small>
+      </div>
+      <div class="control">
+        <label>Tamaño del archivo <span class="val" id="lblFile">2 KB</span></label>
+        <input type="range" id="ctlFile" min="0.5" max="16" step="0.5" value="2">
+        <small id="frameCountPreview">Se generarán 8 tramas.</small>
+      </div>
+      <div class="control">
+        <label>Tamaño de trama <span class="val" id="lblFrame">256 bytes</span></label>
+        <input type="range" id="ctlFrame" min="32" max="1024" step="32" value="256">
+        <small>Define cuántas tramas salen del archivo. No afecta la velocidad de la animación.</small>
+      </div>
+      <div class="control">
+        <label>Ruido del canal (prob. de pérdida) <span class="val" id="lblNoise">20%</span></label>
+        <input type="range" id="ctlNoise" min="0" max="70" step="5" value="20">
+        <small>Puede perderse una trama de datos o su ACK, con esta probabilidad, cada vez que viaja.</small>
+      </div>
+      <div class="control">
+        <label>Velocidad de animación <span class="val" id="lblSpeed">Lenta</span></label>
+        <input type="range" id="ctlSpeed" min="1" max="5" step="1" value="2">
+        <small>Solo afecta qué tan despacio se ve el viaje; no es una tasa de transmisión real.</small>
+      </div>
+    </div>
+  </fieldset>
+
+  <div class="actions">
+    <button id="btnStep">⏭ Paso a paso</button>
+    <button id="btnPlay" class="secondary">▶ Reproducir</button>
+    <button id="btnReset" class="secondary">⟲ Reiniciar</button>
+    <span id="statusMsg">Pausado — pulsa «Paso a paso» o «Reproducir» para comenzar.</span>
+  </div>
+
+  <div class="stage">
+    <div class="nodes-row">
+      <div class="node-box" id="senderBox">
+        <h3>Emisor</h3>
+        <div class="sub">envía tramas dentro de su ventana</div>
+      </div>
+      <div class="channel">
+        <div class="lane data">
+          <span class="lane-label">Datos →</span>
+        </div>
+        <div class="lane ack">
+          <span class="lane-label">← ACK</span>
+        </div>
+      </div>
+      <div class="node-box" id="receiverBox">
+        <h3>Receptor</h3>
+        <div class="sub">guarda en buffer y confirma</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overview">
+    <h4>Mapa general de tramas (vista completa del archivo)</h4>
+    <div class="dots" id="dotsRow"></div>
+  </div>
+
+  <div class="stacks">
+    <div class="stack-panel">
+      <h4>Ventana del emisor</h4>
+      <p class="hint">Tramas reservadas mientras esperan ser enviadas o confirmadas. Se libera un espacio cuando la trama más antigua es confirmada.</p>
+      <div class="slots" id="senderSlots"></div>
+    </div>
+    <div class="stack-panel">
+      <h4>Buffer del receptor</h4>
+      <p class="hint">Tramas recibidas que quedan reservadas hasta poder entregarse en orden. Una trama que llega fuera de orden se guarda aquí en espera.</p>
+      <div class="slots" id="receiverSlots"></div>
+    </div>
+  </div>
+
+  <div class="stats" id="statsRow"></div>
+
+  <div class="log mono" id="logPanel"></div>
+
+  <div class="legend">
+    <span><i class="swatch sw-pending"></i>Pendiente</span>
+    <span><i class="swatch sw-sent"></i>Enviada / recibida, esperando confirmación</span>
+    <span><i class="swatch sw-lost"></i>Perdida en el canal, se reintentará</span>
+    <span><i class="swatch sw-acked"></i>Confirmada</span>
+  </div>
+
+  <details>
+    <summary>Sobre esta simulación</summary>
+    <p>Está pensada para verse con claridad, no para representar tiempos reales de red:</p>
+    <ul>
+      <li>Cada trama tiene un identificador único (no se reutilizan números de secuencia), para que el ejemplo sea más fácil de seguir.</li>
+      <li>Cuando una trama o su ACK se pierden, el emisor no lo sabe de inmediato: sigue enviando otras tramas de su ventana y, tras un pequeño margen simulando el "timeout", reenvía la trama afectada.</li>
+      <li>Si el ACK se pierde pero la trama sí llegó, el receptor descarta el duplicado al recibir el reenvío y simplemente vuelve a confirmar.</li>
+      <li>La ventana del emisor solo avanza cuando la trama más antigua sin confirmar se confirma; por eso una trama perdida puede "atascar" tramas ya confirmadas detrás de ella, tal como ocurre en Selective Repeat.</li>
+    </ul>
+  </details>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const MAX_FRAMES = 260;
+  const SPEED_MS   = [2600, 1900, 1300, 850, 500];
+  const SPEED_LBL  = ["Muy lenta", "Lenta", "Media", "Rápida", "Muy rápida"];
+
+  const el = id => document.getElementById(id);
+
+  const ctlWindow = el("ctlWindow"), lblWindow = el("lblWindow");
+  const ctlFile   = el("ctlFile"),   lblFile   = el("lblFile");
+  const ctlFrame  = el("ctlFrame"),  lblFrame  = el("lblFrame");
+  const ctlNoise  = el("ctlNoise"),  lblNoise  = el("lblNoise");
+  const ctlSpeed  = el("ctlSpeed"),  lblSpeed  = el("lblSpeed");
+  const frameCountPreview = el("frameCountPreview");
+
+  const btnStep = el("btnStep"), btnPlay = el("btnPlay"), btnReset = el("btnReset");
+  const statusMsg = el("statusMsg");
+  const senderBox = el("senderBox"), receiverBox = el("receiverBox");
+  const dotsRow = el("dotsRow"), senderSlots = el("senderSlots"), receiverSlots = el("receiverSlots");
+  const statsRow = el("statsRow"), logPanel = el("logPanel");
+  const dataLane = document.querySelector(".lane.data");
+  const ackLane  = document.querySelector(".lane.ack");
+
+  const state = {
+    frames: [],
+    total: 0,
+    windowSize: 4,
+    senderBase: 0,
+    rcvBase: 0,
+    tick: 0,
+    noise: 0.2,
+    speedMs: SPEED_MS[1],
+    isPlaying: false,
+    gen: 0,
+    resolveWait: null,
+    stats: { retransmits: 0, dataLost: 0, ackLost: 0 }
+  };
+
+  function computeTotal(){
+    const fileBytes = parseFloat(ctlFile.value) * 1024;
+    const frameBytes = parseFloat(ctlFrame.value);
+    return Math.max(1, Math.min(MAX_FRAMES, Math.ceil(fileBytes / frameBytes)));
+  }
+
+  function refreshControlLabels(){
+    lblWindow.textContent = ctlWindow.value + (ctlWindow.value == 1 ? " trama" : " tramas");
+    lblFile.textContent = parseFloat(ctlFile.value) + " KB";
+    lblFrame.textContent = ctlFrame.value + " bytes";
+    lblNoise.textContent = ctlNoise.value + "%";
+    lblSpeed.textContent = SPEED_LBL[parseInt(ctlSpeed.value,10)-1];
+    frameCountPreview.textContent = "Se generarán " + computeTotal() + " tramas.";
+  }
+
+  function log(msg, type){
+    const line = document.createElement("div");
+    line.className = "line " + (type||"info");
+    line.textContent = msg;
+    logPanel.appendChild(line);
+    logPanel.scrollTop = logPanel.scrollHeight;
+  }
+
+  function flash(box){
+    box.classList.add("active");
+    setTimeout(()=>box.classList.remove("active"), Math.max(220, state.speedMs*0.28));
+  }
+
+  function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
+
+  function waitForStepOrPlay(){
+    return new Promise(resolve=>{ state.resolveWait = resolve; });
+  }
+
+  function armResolveIfWaiting(){
+    if(state.resolveWait){
+      const r = state.resolveWait;
+      state.resolveWait = null;
+      r();
+    }
+  }
+
+  // ---------- rendering ----------
+
+  function renderDots(){
+    if(dotsRow.children.length !== state.total){
+      dotsRow.innerHTML = "";
+      for(let i=0;i<state.total;i++){
+        const d = document.createElement("div");
+        d.className = "dot";
+        d.title = "Trama #" + (i+1);
+        dotsRow.appendChild(d);
+      }
+    }
+    for(let i=0;i<state.total;i++){
+      const d = dotsRow.children[i];
+      const f = state.frames[i];
+      d.classList.remove("d-acked","d-lost","d-wait");
+      if(f.status === "acked") d.classList.add("d-acked");
+      else if(f.status === "lost") d.classList.add("d-lost");
+      else if(f.status === "awaiting_ack") d.classList.add("d-wait");
+    }
+  }
+
+  function slotNode(id, kind){
+    const div = document.createElement("div");
+    div.className = "slot";
+    if(id >= state.total){
+      div.classList.add("empty");
+      div.innerHTML = "<span>—</span>";
+      return div;
+    }
+    const f = state.frames[id];
+    let cls = "st-pending", label = "Pendiente";
+
+    if(kind === "sender"){
+      if(f.status === "acked"){ cls = "st-acked"; label = "Confirmada"; }
+      else if(f.status === "lost"){ cls = "st-lost"; label = f.dataDelivered ? "ACK perdido" : "Perdida"; }
+      else if(f.status === "awaiting_ack"){ cls = "st-sent"; label = "Esperando ACK"; }
+      else { cls = "st-pending"; label = "Pendiente"; }
+    } else {
+      if(id < state.rcvBase){ div.classList.add("empty"); div.innerHTML = "<span>—</span>"; return div; }
+      if(f.dataDelivered){ cls = "st-buffered"; label = "Recibida"; }
+      else { cls = "st-pending"; label = "En espera"; }
+    }
+
+    div.classList.add(cls);
+    div.innerHTML = '<span class="num">#'+(id+1)+'</span><span>'+label+'</span>';
+    return div;
+  }
+
+  function renderStacks(){
+    senderSlots.innerHTML = "";
+    receiverSlots.innerHTML = "";
+    const end = state.senderBase + state.windowSize;
+    for(let i=state.senderBase; i<end; i++) senderSlots.appendChild(slotNode(i, "sender"));
+    const rend = state.rcvBase + state.windowSize;
+    for(let i=state.rcvBase; i<rend; i++) receiverSlots.appendChild(slotNode(i, "receiver"));
+  }
+
+  function renderStats(){
+    statsRow.innerHTML =
+      "<span>Tramas totales: <b>"+state.total+"</b></span>" +
+      "<span>Confirmadas: <b>"+state.senderBase+"</b></span>" +
+      "<span>Entregadas al receptor: <b>"+state.rcvBase+"</b></span>" +
+      "<span>Reenvíos: <b>"+state.stats.retransmits+"</b></span>" +
+      "<span>Tramas perdidas: <b>"+state.stats.dataLost+"</b></span>" +
+      "<span>ACK perdidos: <b>"+state.stats.ackLost+"</b></span>";
+  }
+
+  function updateButtons(){
+    const finished = state.senderBase >= state.total;
+    btnPlay.textContent = state.isPlaying ? "⏸ Pausar" : "▶ Reproducir";
+    btnStep.disabled = state.isPlaying || finished;
+    btnPlay.disabled = finished;
+    if(finished){
+      statusMsg.textContent = "Simulación completa: todas las tramas fueron entregadas y confirmadas.";
+    } else if(state.isPlaying){
+      statusMsg.textContent = "Reproduciendo…";
+    } else {
+      statusMsg.textContent = "Pausado — pulsa «Paso a paso» o «Reproducir» para continuar.";
+    }
+  }
+
+  function render(){
+    renderDots();
+    renderStacks();
+    renderStats();
+    updateButtons();
+  }
+
+  // ---------- animation ----------
+
+  function animateLane(lane, isData, lost){
+    return new Promise(resolve=>{
+      const token = document.createElement("div");
+      token.className = "token " + (isData ? "token-data" : "token-ack");
+      token.textContent = isData ? "D" : "A";
+      lane.appendChild(token);
+
+      const startPct = isData ? 2 : 92;
+      const successPct = isData ? 92 : 2;
+      const lossPct = isData ? (28 + Math.random()*30) : (72 - Math.random()*30);
+
+      token.style.left = startPct + "%";
+      void token.offsetWidth; // force reflow
+      const dur = state.speedMs;
+      token.style.transition = "left " + dur + "ms linear";
+
+      requestAnimationFrame(()=>{
+        token.style.left = (lost ? lossPct : successPct) + "%";
+      });
+
+      setTimeout(()=>{
+        if(lost){
+          token.classList.add("is-lost");
+          token.textContent = "×";
+          setTimeout(()=>{ token.remove(); resolve(); }, 360);
+        } else {
+          token.classList.add("is-arrived");
+          setTimeout(()=>{ token.remove(); resolve(); }, 220);
+        }
+      }, dur);
+    });
+  }
+
+  // ---------- protocol logic ----------
+
+  function updateReceiverDelivery(){
+    while(state.rcvBase < state.total && state.frames[state.rcvBase].dataDelivered){
+      state.rcvBase++;
+    }
+  }
+
+  function advanceSenderBase(){
+    while(state.senderBase < state.total && state.frames[state.senderBase].status === "acked"){
+      state.senderBase++;
+    }
+  }
+
+  function pickNextAction(){
+    const { frames, total, senderBase, windowSize, tick } = state;
+    const end = Math.min(total, senderBase + windowSize);
+
+    for(let i=senderBase;i<end;i++){
+      if(frames[i].status === "pending") return { type:"SEND", id:i };
+    }
+    for(let i=senderBase;i<end;i++){
+      if(frames[i].status === "awaiting_ack") return { type:"ACK", id:i };
+    }
+    for(let i=senderBase;i<end;i++){
+      if(frames[i].status === "lost" && tick >= frames[i].retryReady) return { type:"SEND", id:i };
+    }
+    return null;
+  }
+
+  async function doDataLeg(id, myGen){
+    const frames = state.frames;
+    const f = frames[id];
+    const isRetx = f.status === "lost";
+    const wasAlreadyDelivered = f.dataDelivered;
+    f.attempts = (f.attempts||0) + 1;
+    if(isRetx) state.stats.retransmits++;
+
+    log((isRetx ? "Reenvío (timeout): " : "Envío: ") + "el emisor transmite la trama #" + (id+1) +
+        (isRetx ? " — intento " + f.attempts : "") , isRetx ? "warn" : "info");
+    flash(senderBox);
+
+    const lost = Math.random() < state.noise;
+    await animateLane(dataLane, true, lost);
+    if(myGen !== state.gen) return;
+
+    if(lost){
+      f.status = "lost";
+      f.retryReady = state.tick + 2;
+      state.stats.dataLost++;
+      log("La trama #" + (id+1) + " se pierde en el canal (ruido).", "error");
+    } else {
+      f.dataDelivered = true;
+      f.status = "awaiting_ack";
+      flash(receiverBox);
+      updateReceiverDelivery();
+      if(wasAlreadyDelivered){
+        log("El receptor ya tenía la trama #" + (id+1) + " almacenada: descarta el duplicado y volverá a confirmar.", "info");
+      } else {
+        log("La trama #" + (id+1) + " llega correctamente y se guarda en el buffer del receptor.", "success");
+      }
+    }
+    state.tick++;
+    if(myGen !== state.gen) return;
+    render();
+  }
+
+  async function doAckLeg(id, myGen){
+    const frames = state.frames;
+    const f = frames[id];
+    f.ackAttempts = (f.ackAttempts||0) + 1;
+
+    log("El receptor envía el ACK de la trama #" + (id+1) + ".", "info");
+    flash(receiverBox);
+
+    const lost = Math.random() < state.noise;
+    await animateLane(ackLane, false, lost);
+    if(myGen !== state.gen) return;
+
+    if(lost){
+      f.status = "lost";
+      f.retryReady = state.tick + 2;
+      state.stats.ackLost++;
+      log("El ACK de la trama #" + (id+1) + " se pierde en el canal.", "error");
+    } else {
+      f.status = "acked";
+      flash(senderBox);
+      log("El emisor recibe el ACK y confirma la trama #" + (id+1) + ".", "success");
+      advanceSenderBase();
+    }
+    state.tick++;
+    if(myGen !== state.gen) return;
+    render();
+  }
+
+  async function runEngine(myGen){
+    while(myGen === state.gen && state.senderBase < state.total){
+      if(!state.isPlaying){
+        await waitForStepOrPlay();
+        if(myGen !== state.gen) return;
+      }
+      const action = pickNextAction();
+      if(myGen !== state.gen) return;
+
+      if(!action){
+        log("Esperando el temporizador de retransmisión…", "muted");
+        state.tick++;
+        await sleep(Math.max(180, state.speedMs*0.35));
+        if(myGen !== state.gen) return;
+        continue;
+      }
+
+      if(action.type === "SEND") await doDataLeg(action.id, myGen);
+      else await doAckLeg(action.id, myGen);
+      if(myGen !== state.gen) return;
+
+      if(state.isPlaying){
+        await sleep(Math.max(150, state.speedMs*0.3));
+        if(myGen !== state.gen) return;
+      }
+    }
+    if(myGen === state.gen && state.senderBase >= state.total){
+      log("Transmisión completa: todas las tramas fueron entregadas y confirmadas.", "success");
+      render();
+    }
+  }
+
+  // ---------- setup / reset ----------
+
+  function buildAndReset(){
+    state.gen++;
+    const myGen = state.gen;
+
+    state.windowSize = parseInt(ctlWindow.value, 10);
+    state.total = computeTotal();
+    state.noise = parseInt(ctlNoise.value, 10) / 100;
+    state.speedMs = SPEED_MS[parseInt(ctlSpeed.value,10)-1];
+    state.senderBase = 0;
+    state.rcvBase = 0;
+    state.tick = 0;
+    state.isPlaying = false;
+    state.resolveWait = null;
+    state.stats = { retransmits:0, dataLost:0, ackLost:0 };
+
+    state.frames = [];
+    for(let i=0;i<state.total;i++){
+      state.frames.push({
+        id:i, status:"pending", dataDelivered:false,
+        attempts:0, ackAttempts:0, retryReady:0
+      });
+    }
+
+    logPanel.innerHTML = "";
+    log("Simulación lista: " + state.total + " tramas, ventana de " + state.windowSize +
+        ", ruido " + Math.round(state.noise*100) + "%.", "info");
+
+    render();
+    runEngine(myGen);
+  }
+
+  // ---------- wiring ----------
+
+  [ctlWindow, ctlFile, ctlFrame, ctlNoise, ctlSpeed].forEach(input=>{
+    input.addEventListener("input", refreshControlLabels);
+  });
+
+  ctlNoise.addEventListener("change", ()=>{
+    state.noise = parseInt(ctlNoise.value,10)/100;
+  });
+  ctlSpeed.addEventListener("change", ()=>{
+    state.speedMs = SPEED_MS[parseInt(ctlSpeed.value,10)-1];
+  });
+  [ctlWindow, ctlFile, ctlFrame].forEach(input=>{
+    input.addEventListener("change", buildAndReset);
+  });
+
+  btnStep.addEventListener("click", ()=>{
+    if(state.isPlaying) return;
+    armResolveIfWaiting();
+  });
+  btnPlay.addEventListener("click", ()=>{
+    if(state.senderBase >= state.total) return;
+    state.isPlaying = !state.isPlaying;
+    updateButtons();
+    if(state.isPlaying) armResolveIfWaiting();
+  });
+  btnReset.addEventListener("click", buildAndReset);
+
+  refreshControlLabels();
+  buildAndReset();
+})();
+</script>
+</body>
+</html>
