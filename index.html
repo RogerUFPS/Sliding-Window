@@ -227,17 +227,6 @@
     <span><i class="swatch sw-acked"></i>Confirmada</span>
   </div>
 
-  <details>
-    <summary>Sobre esta simulación</summary>
-    <p>Está pensada para verse con claridad, no para representar tiempos reales de red:</p>
-    <ul>
-      <li>Cada trama tiene un identificador único (no se reutilizan números de secuencia), para que el ejemplo sea más fácil de seguir.</li>
-      <li>Cuando una trama o su ACK se pierden, el emisor no lo sabe de inmediato: sigue enviando otras tramas de su ventana y, tras un pequeño margen simulando el "timeout", reenvía la trama afectada.</li>
-      <li>Si el ACK se pierde pero la trama sí llegó, el receptor descarta el duplicado al recibir el reenvío y simplemente vuelve a confirmar.</li>
-      <li>La ventana del emisor solo avanza cuando la trama más antigua sin confirmar se confirma; por eso una trama perdida puede "atascar" tramas ya confirmadas detrás de ella, tal como ocurre en Selective Repeat.</li>
-    </ul>
-  </details>
-
 </div>
 
 <script>
